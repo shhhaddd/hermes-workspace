@@ -1,15 +1,9 @@
 services:
-  hermesui-proxy:
-    image: 'node:20'
-    container_name: hermesui-proxy
-    restart: unless-stopped
-    command: "sh -c \"node -e \\\"\n  const http=require('http'),https=require('https');\n  const TARGET='berri.grokstar.top';\n  const KEY=process.env.LITELLM_KEY;\n  let cachedModel=null,cacheTime=0;\n  async function getModel(){\n    if(cachedModel&&Date.now()-cacheTime<60000) return cachedModel;\n    return new Promise((res,rej)=>{\n      const r=https.get({hostname:TARGET,path:'/v1/models',headers:{'Authorization':'Bearer '+KEY}},(resp)=>{\n        let d='';\n        resp.on('data',c=>d+=c);\n        resp.on('end',()=>{\n          try{\n            cachedModel=JSON.parse(d).data[0].id;\n            cacheTime=Date.now();\n            console.log('model cached: '+cachedModel);\n            res(cachedModel);\n          }catch(e){rej(e);}\n        });\n      });\n      r.on('error',rej);\n    });\n  }\n  http.createServer(async(req,res)=>{\n    let b=[];\n    req.on('data',c=>b.push(c));\n    req.on('end',async()=>{\n      b=Buffer.concat(b);\n      let mb=b;\n      if(req.method==='POST'&&req.url.includes('/chat/completions')){\n        try{\n          const j=JSON.parse(b.toString());\n          j.model=await getModel();\n          mb=Buffer.from(JSON.stringify(j));\n          console.log('model: '+j.model);\n        }catch(e){console.warn('proxy err',e);}\n      }\n      const o={hostname:TARGET,port:443,path:req.url,method:req.method,headers:{...req.headers,host:TARGET,'content-length':mb.length}};\n      const p=https.request(o,r=>{res.writeHead(r.statusCode,r.headers);r.pipe(res);});\n      p.on('error',e=>{res.writeHead(502);res.end('Bad Gateway');});\n      p.write(mb);p.end();\n    });\n  }).listen(3000,()=>console.log('proxy ready'));\n\\\"\"\n"
-
-  hermesui-core:
+  hermes-agent:
     build:
       context: .
       dockerfile: docker/agent/Dockerfile
-    container_name: hermesui-core
+    container_name: hermes-agent
     restart: unless-stopped
     depends_on:
       - hermesui-proxy
@@ -30,12 +24,18 @@ services:
           memory: 4G
           cpus: '2.0'
 
+  hermesui-proxy:
+    image: 'node:20'
+    container_name: hermesui-proxy
+    restart: unless-stopped
+    command: "sh -c \"node -e \\\"\n  const http=require('http'),https=require('https');\n  const TARGET='berri.grokstar.top';\n  const KEY=process.env.LITELLM_KEY;\n  let cachedModel=null,cacheTime=0;\n  async function getModel(){\n    if(cachedModel&&Date.now()-cacheTime<60000) return cachedModel;\n    return new Promise((res,rej)=>{\n      const r=https.get({hostname:TARGET,path:'/v1/models',headers:{'Authorization':'Bearer '+KEY}},(resp)=>{\n        let d='';\n        resp.on('data',c=>d+=c);\n        resp.on('end',()=>{\n          try{\n            cachedModel=JSON.parse(d).data[0].id;\n            cacheTime=Date.now();\n            console.log('model cached: '+cachedModel);\n            res(cachedModel);\n          }catch(e){rej(e);}\n        });\n      });\n      r.on('error',rej);\n    });\n  }\n  http.createServer(async(req,res)=>{\n    let b=[];\n    req.on('data',c=>b.push(c));\n    req.on('end',async()=>{\n      b=Buffer.concat(b);\n      let mb=b;\n      if(req.method==='POST'&&req.url.includes('/chat/completions')){\n        try{\n          const j=JSON.parse(b.toString());\n          j.model=await getModel();\n          mb=Buffer.from(JSON.stringify(j));\n          console.log('model: '+j.model);\n        }catch(e){console.warn('proxy err',e);}\n      }\n      const o={hostname:TARGET,port:443,path:req.url,method:req.method,headers:{...req.headers,host:TARGET,'content-length':mb.length}};\n      const p=https.request(o,r=>{res.writeHead(r.statusCode,r.headers);r.pipe(res);});\n      p.on('error',e=>{res.writeHead(502);res.end('Bad Gateway');});\n      p.write(mb);p.end();\n    });\n  }).listen(3000,()=>console.log('proxy ready'));\n\\\"\"\n"
+
   hermesui:
     build: .
     container_name: hermesui
     restart: unless-stopped
     depends_on:
-      hermesui-core:
+      hermes-agent:
         condition: service_healthy
     ports:
       - '3010:3000'
